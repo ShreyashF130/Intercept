@@ -1,0 +1,19 @@
+# Local virtual environments
+venv/
+.venv/
+env/
+
+# Python caching
+__pycache__/
+*.pyc
+
+# Node dependencies and builds
+node_modules/
+.next/
+dist/
+build/
+
+# Secret local environment configurations
+.env
+.env.local
+.env.development

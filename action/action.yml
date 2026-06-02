@@ -1,0 +1,46 @@
+name: 'Intercept AI Fuzzer'
+description: 'Automatically fuzz-tests LLM schema contracts using your own LLM keys.'
+branding:
+  icon: 'shield'
+  color: 'blue'
+
+inputs:
+  schema_file:
+    description: 'Path to the Python source file (.py) or JSON schema (.json)'
+    required: true
+  schema_name:
+    description: 'Name of the Pydantic class or Schema'
+    required: true
+  api_key:
+    description: 'Your Intercept Project API Key (Authenticates to your backend dashboard)'
+    required: true
+  backend_url:
+    description: 'The Intercept Backend URL'
+    required: true
+    default: 'http://127.0.0.1:8000/api/v1/fuzz/run'
+  # --- NEW BYOK INPUTS ---
+  llm_provider:
+    description: 'The LLM engine to execute the fuzzing attacks (gemini, openai, anthropic)'
+    required: true
+    default: 'gemini'
+  llm_api_key:
+    description: 'The API key for your chosen LLM provider'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Dependencies
+      run: pip install requests
+      shell: bash
+
+    - name: Execute Intercept Pipeline
+      run: python ${{ github.action_path }}/main.py
+      shell: bash
+      env:
+        SCHEMA_FILE: ${{ inputs.schema_file }}
+        SCHEMA_NAME: ${{ inputs.schema_name }}
+        API_KEY: ${{ inputs.api_key }}
+        BACKEND_URL: ${{ inputs.backend_url }}
+        LLM_PROVIDER: ${{ inputs.llm_provider }}
+        LLM_API_KEY: ${{ inputs.llm_api_key }}
