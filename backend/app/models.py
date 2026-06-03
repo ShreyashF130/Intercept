@@ -1,3 +1,4 @@
+# backend/app/models.py
 from sqlalchemy import Column, Integer, String, JSON, ForeignKey, DateTime
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -7,6 +8,10 @@ class FuzzSessionRecord(Base):
     __tablename__ = "fuzz_sessions"
 
     id = Column(Integer, primary_key=True, index=True)
+    
+    # NEW: Multi-Tenant Isolation Key
+    organization_id = Column(String, index=True, nullable=False) 
+    
     repository = Column(String, index=True)
     total_tests = Column(Integer)
     passed_count = Column(Integer)
