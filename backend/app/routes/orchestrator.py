@@ -1,16 +1,17 @@
 # backend/app/routes/orchestrator.py
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
-from pydantic import BaseModel
-from typing import Dict, Any, Optional
+import json
 import uuid
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from pydantic import BaseModel
+from typing import Dict, Any
+from sqlalchemy import text # <-- CRITICAL: Forces SQLAlchemy to execute raw SQL
 
 from sdk.intercept.fuzzer import generate_fuzz_cases
 from sdk.intercept.engine import run_contract_test
+from backend.app.auth import authenticate_tenant
+from backend.app.database import SessionLocal
 
 router = APIRouter()
-
-# In-memory storage cache for execution statuses.
-# NOTE: For production, you will save/update these states in your Supabase DB.
 SESSION_CACHE: Dict[str, Dict[str, Any]] = {}
 
 class FuzzTriggerPayload(BaseModel):
@@ -19,13 +20,9 @@ class FuzzTriggerPayload(BaseModel):
     llm_provider: str
     llm_api_key: str
 
-def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload):
-    """
-    Asynchronous worker task that handles the heavy LLM fuzzing loop 
-    outside the main request/response thread.
-    """
+def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organization_id: str):
+    db = SessionLocal()
     try:
-        # 1. Generate adversarial attack prompts
         attack_prompts = generate_fuzz_cases(
             schema_name=payload.schema_name,
             schema_json_definition=payload.schema_definition,
@@ -35,16 +32,17 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload):
         )
         
         if not attack_prompts:
-            SESSION_CACHE[session_id] = {
-                "status": "failed",
-                "error": f"Fuzz generation failed. Verify that your [{payload.llm_provider}] API key is valid."
-            }
+            db.execute(
+                text("UPDATE fuzz_sessions SET status = 'failed' WHERE id = :id"),
+                {"id": session_id}
+            )
+            db.commit()
+            SESSION_CACHE[session_id] = {"status": "failed", "error": "Fuzz generation failed."}
             return
 
         reports = []
         passed_count = 0
 
-        # 2. Execute contract structural verification
         for attack_input in attack_prompts:
             run_report = run_contract_test(
                 system_prompt="You are a strict database ingestion contract validator.",
@@ -55,57 +53,135 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload):
                 llm_api_key=payload.llm_api_key
             )
             reports.append(run_report)
-            if run_report.get("status") == "passed":
+            
+            test_status = run_report.get("status", "failed")
+            if test_status == "passed":
                 passed_count += 1
 
-        # Determine pipeline threshold success status
-        final_status = "passed" if passed_count == len(attack_prompts) else "failed"
+            # Wrapped in text() and properly serialized
+            db.execute(
+                text("""
+                INSERT INTO test_cases (session_id, input_payload, error_message, status)
+                VALUES (:session_id, :input_payload, :error_message, :status)
+                """),
+                {
+                    "session_id": session_id,
+                   "input_payload": json.dumps(attack_input),
+                    "error_message": run_report.get("error"),
+                    "status": test_status
+                }
+            )
 
-        # 3. Save finalized telemetry data back to cache/DB
+        final_result = "passed" if passed_count == len(attack_prompts) else "failed"
+
+        db.execute(
+            text("""
+            UPDATE fuzz_sessions 
+            SET status = 'completed', result = :result, total_tests = :total, 
+                passed_tests = :passed, failed_tests = :failed
+            WHERE id = :id
+            """),
+            {
+                "id": session_id,
+                "result": final_result,
+                "total": len(attack_prompts),
+                "passed": passed_count,
+                "failed": len(attack_prompts) - passed_count
+            }
+        )
+        db.commit()
+
         SESSION_CACHE[session_id] = {
             "status": "completed",
-            "result": final_status,
+            "result": final_result,
             "total_tests": len(attack_prompts),
             "passed_tests": passed_count,
             "failed_tests": len(attack_prompts) - passed_count,
-            "details": reports
+            "details": reports,
+            "organization_id": organization_id
         }
 
     except Exception as e:
-        SESSION_CACHE[session_id] = {
-            "status": "failed",
-            "error": f"Internal Worker Error: {str(e)}"
-        }
+        print(f"❌ DATABASE WORKER ERROR: {str(e)}") # This will expose the error in your terminal
+        db.rollback()
+        db.execute(text("UPDATE fuzz_sessions SET status = 'failed' WHERE id = :id"), {"id": session_id})
+        db.commit()
+        SESSION_CACHE[session_id] = {"status": "failed", "error": str(e)}
+    finally:
+        db.close()
 
 @router.post("/api/v1/fuzz/run", status_code=status.HTTP_202_ACCEPTED)
-def trigger_fuzz_pipeline(payload: FuzzTriggerPayload, background_tasks: BackgroundTasks):
-    """
-    Receives payload, spawns worker, instantly drops response back to runner.
-    """
-    print(f"🚀 [ASYNC GATEWAY] Dispatched tracking run for schema: {payload.schema_name}")
-    
-    # Generate unique session tracker id
+def trigger_fuzz_pipeline(
+    payload: FuzzTriggerPayload, 
+    background_tasks: BackgroundTasks,
+    tenant_context: dict = Depends(authenticate_tenant)
+):
     session_id = str(uuid.uuid4())
+    db = SessionLocal()
+    try:
+        db.execute(
+            text("""
+            INSERT INTO fuzz_sessions (id, organization_id, schema_name, status)
+            VALUES (:id, :org_id, :schema, 'processing')
+            """),
+            {"id": session_id, "org_id": tenant_context["organization_id"], "schema": payload.schema_name}
+        )
+        db.commit()
+    except Exception as e:
+        print(f"❌ DATABASE INSERT ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to initialize session in database.")
+    finally:
+        db.close()
+
+    SESSION_CACHE[session_id] = {
+        "status": "processing",
+        "organization_id": tenant_context["organization_id"]
+    }
     
-    # Register pending state initialization
-    SESSION_CACHE[session_id] = {"status": "processing"}
+    background_tasks.add_task(async_fuzz_processor, session_id, payload, tenant_context["organization_id"])
     
-    # Hand execution logic entirely off to thread pool worker
-    background_tasks.add_task(async_fuzz_processor, session_id, payload)
-    
-    # Return 202 instantly
     return {
         "status": "accepted",
         "session_id": session_id,
         "message": "Fuzz testing pipeline successfully initiated in background."
     }
 
+
+
+
 @router.get("/api/v1/fuzz/status/{session_id}")
 def check_pipeline_status(session_id: str):
-    """
-    Tracking endpoint hit repeatedly by GitHub Action script to poll progress metrics.
-    """
     if session_id not in SESSION_CACHE:
         raise HTTPException(status_code=404, detail="Requested fuzzing session not found.")
-    
     return SESSION_CACHE[session_id]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
