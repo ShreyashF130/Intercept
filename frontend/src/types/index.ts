@@ -8,17 +8,28 @@ export interface TestCaseResult {
     validation_errors: any;
 }
 
+// frontend/src/types/index.ts (or your types file)
+
 export interface FuzzSessionHistory {
-    id: number;
-    repository: string;
-    date: string;
-    passed: number;
-    failed: number;
+  id?: string;
+  schema_name: string;
+  status: string;         // 'processing', 'completed', 'failed'
+  result?: string;        // 'passed', 'failed'
+  created_at?: string;
+  
+  // --- ADD THESE NEW MULTI-TENANT TRACKING KEYS ---
+  total_tests?: number;
+  passed_tests?: number;
+  failed_tests?: number;
+
+  // Keep these if your older dashboard logic still references them
+  failed?: number;
+  passed?: number;
 }
 
+// Ensure your main response wrapper mirrors this array type cleanly
 export interface DashboardMetricsResponse {
-    status: string;
-    global_failure_rate: number;
-    total_tests_tracked: number;
-    recent_sessions: FuzzSessionHistory[];
+  total_tests_tracked: number;
+  global_failure_rate: number;
+  recent_sessions: FuzzSessionHistory[]; // <-- Maps cleanly here
 }
