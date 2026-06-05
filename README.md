@@ -1,46 +1,101 @@
-# 🛡️ Intercept 
+<div align="center">
+  
+# 🛡️ Intercept
 
-**Enterprise-Grade LLM Contract Fuzzing & Hallucination Prevention.**
+**The CI/CD Security Gate for Agentic AI & LLMs**
 
-[![GitHub Action](https://img.shields.io/badge/GitHub%20Action-Ready-blue?style=for-the-badge&logo=github)](https://github.com/features/actions)
-[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Next.js](https://img.shields.io/badge/Next.js-black?style=for-the-badge&logo=next.js&logoColor=white)](https://nextjs.org/)
+[![Release](https://img.shields.io/github/v/release/ShreyashF130/intercept)](https://github.com/ShreyashF130/intercept/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![FastAPI Backend](https://img.shields.io/badge/Gateway-FastAPI-009688?logo=fastapi)](https://fastapi.tiangolo.com/)
+[![Next.js Telemetry](https://img.shields.io/badge/Telemetry-Next.js-black?logo=next.js)](https://nextjs.org/)
 
-## ⚠️ The Problem: Silent AI Failures
-When building applications powered by Large Language Models (LLMs), developers rely on strict JSON schemas (like Pydantic models) to ensure the AI returns data in a predictable format. 
+</div>
 
-However, under edge-case prompts or ambiguous inputs, LLMs will silently hallucinate data types, ignore constraints (like negative numbers or unsupported currencies), or drop required fields entirely just to make the JSON parse correctly. **This corrupts production databases and breaks downstream APIs.**
+## ⚠️ The Problem: Agents Hallucinate, Pipelines Crash
 
-## 🎯 The Solution: Intercept
-Intercept is a dual-LLM adversarial testing suite. It uses an AI-driven fuzzer to dynamically generate malicious edge-case prompts designed specifically to break your JSON schemas. It then fires those attacks at your application's AI engine, logs the hallucination rate, and permanently stores the telemetry.
+When you build autonomous AI agents using frameworks like LangChain, CrewAI, or AutoGen, you rely on strict data contracts (like **Pydantic**) to route logic. 
 
-If an LLM breaks the contract, Intercept catches it before your users do.
+But LLMs are probabilistic. Eventually, an LLM will hallucinate a string instead of a float, or inject conversational text into a JSON key. When that hits your production pipeline, Pydantic throws a `ValidationError` and your agent crashes.
+
+## 🚀 The Solution: Shift-Left Adversarial Fuzzing
+
+**Intercept** is a CI/CD GitHub Action that acts as a structural security guard for your Agentic AI contracts. On every Pull Request, Intercept parses your Python schemas and uses an LLM to aggressively fuzz and attack those contracts with edge-case payloads.
+
+If an AI hallucination can break your schema, we catch it *before* you merge.
 
 ---
 
-## ✨ Core Features
+## ✨ Features
 
-* 🧠 **Dynamic Schema Ingestion:** No hardcoded types. Pass any valid JSON schema, and the fuzzer instantly understands how to attack it.
-* 🚦 **CI/CD Security Gate:** A drop-in GitHub Action that runs fuzz tests on every Pull Request. If the hallucination rate spikes, the PR is blocked.
-* 📊 **Next.js Telemetry Dashboard:** A beautiful, real-time React dashboard displaying global failure rates, recent fuzzing sessions, and hallucination trends.
-* 🧪 **Live Fuzzing Sandbox:** Paste a schema directly into the browser and watch the adversarial engine attack it in real-time.
-* 🗄️ **Persistent PostgreSQL Analytics:** All test cases and failures are permanently logged via SQLAlchemy for compliance and auditing.
+* **🧠 Zero-Config AST Parsing:** No manual JSON schemas required. Intercept dynamically extracts your Pydantic models directly from your raw `.py` files.
+* **🔑 Bring Your Own Key (BYOK):** Run fuzzing generation using your own `gemini`, `openai`, or `anthropic` keys. Zero compute markup.
+* **⚡ Asynchronous execution:** Our API gateway handles complex adversarial generation loops in the background. Your GitHub Action runner will never timeout.
+* **📊 Visual Audit Ledger:** Every structural diff, poisoned payload, and parser crash is logged to a persistent PostgreSQL database and viewable on your interactive Web Dashboard.
+
+---
+
+## 📦 Quick Start (GitHub Action)
+
+Add Intercept to your repository in under 60 seconds. Drop this YAML configuration into `.github/workflows/intercept.yml`:
+
+```yaml
+name: Intercept AI Contract Guard
+on: [pull_request]
+
+jobs:
+  security_audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+      
+      - name: Run Adversarial Fuzzer
+        uses: your-username/intercept@v1.0.0
+        with:
+          schema_file: 'src/agents/schemas.py'
+          schema_name: 'ToolExecutionModel'
+          intercept_api_key: ${{ secrets.INTERCEPT_API_KEY }}
+          llm_provider: 'gemini' 
+          llm_api_key: ${{ secrets.GEMINI_API_KEY }}
+
+```
+## ⚙️ Action Inputs
+
+| Input | Description | Required | Default |
+| :--- | :--- | :---: | :--- |
+| `schema_file` | Path to the Python file containing your Pydantic models. | **Yes** | - |
+| `schema_name` | The exact class name of the Pydantic model to fuzz. | **Yes** | - |
+| `intercept_api_key`| Your Intercept Organization API Key. | **Yes** | - |
+| `llm_api_key` | Your LLM Provider API Key (Requires billing enabled). | **Yes** | - |
+| `llm_provider` | The LLM to use for adversarial generation (`gemini`, `openai`, `anthropic`). | No | `gemini` |
+
+---
+
+
+## 🖥️ The Telemetry Dashboard
+
+Intercept doesn't just fail your CI build and leave you guessing. Every execution streams metrics directly to the **Intercept Dashboard**.
+
+Expand any failed test run to see a side-by-side split pane of your **Expected Pydantic Structure** against the exact **Poisoned Adversarial Payload** that broke it.
+
+*(Note: Create your account and get your `INTERCEPT_API_KEY` at (https://intercept-landing-iota.vercel.app))*
 
 ---
 
 ## 🏗️ Architecture
 
-Intercept operates on a decoupled, microservice-ready architecture:
+Intercept is built as a highly scalable micro-SaaS:
+1. **The Runner (`/action`):** A Composite GitHub action running Python AST extractors.
+2. **The Gateway (`/backend`):** A FastAPI server executing asynchronous background workers and connection pooling.
+3. **The Ledger (`Supabase`):** Multi-tenant PostgreSQL managing isolated organization telemetry.
+4. **The UI (`/frontend`):** A Next.js application utilizing Recharts and real-time state management.
 
-```text
-[ Developer / CI/CD Pipeline ]
-       │
-       ▼ (Sends Target JSON Schema)
-[ FastAPI Orchestrator ] 
-       │
-       ├──► [ Intercept Fuzzer ] (Generates Malicious Prompts)
-       │
-       └──► [ Validation Engine ] (Executes & Audits Responses)
-       │
-       ▼ (Logs Metrics)
-[ PostgreSQL Database ] ◄── (Reads Analytics) ── [ Next.js Dashboard ]
+---
+
+## 🤝 Contributing
+
+We welcome contributions from the Agentic AI community. Please read our [Contributing Guidelines](CONTRIBUTING.md) before submitting a Pull Request.
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
