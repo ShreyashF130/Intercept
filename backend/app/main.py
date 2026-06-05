@@ -15,7 +15,7 @@ app = FastAPI(
 # Allow Next.js (Port 3000) to talk to FastAPI (Port 8000)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], 
+    allow_origins=["http://localhost:3000","https://intercept-landing-iota.vercel.app/","http://127.0.0.1:3000"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
