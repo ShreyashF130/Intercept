@@ -44,9 +44,10 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
         passed_count = 0
 
         for attack_input in attack_prompts:
+            payload_string = json.dumps(attack_input) if isinstance(attack_input, dict) else str(attack_input)
             run_report = run_contract_test(
                 system_prompt="You are a strict database ingestion contract validator.",
-                user_input=attack_input,
+                user_input=payload_string,
                 schema_name=payload.schema_name,
                 schema_json=payload.schema_definition,
                 llm_provider=payload.llm_provider,
