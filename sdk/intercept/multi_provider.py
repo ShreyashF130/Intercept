@@ -21,7 +21,7 @@ def generate_content_with_byok(provider: str, api_key: str, system_instruction: 
                 config_args["response_mime_type"] = "application/json"
                 
             response = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-2.5-flash-lite",
                 contents=user_prompt,
                 config=types.GenerateContentConfig(**config_args)
             )
