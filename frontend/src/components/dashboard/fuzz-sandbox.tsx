@@ -1,35 +1,51 @@
 // src/components/dashboard/fuzz-sandbox.tsx
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { dashboardService } from "@/services/api";
 import { Play, AlertCircle, CheckCircle2 } from "lucide-react";
+
+const STORAGE_KEY = "intercept_sandbox_schema";
+const DEFAULT_SCHEMA = `{
+  "username": "string",
+  "age": "integer",
+  "is_active": "boolean"
+}`;
 
 export function FuzzSandbox({ onRunComplete }: { onRunComplete: () => void }) {
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<{ type: 'idle' | 'success' | 'error', msg: string }>({ type: 'idle', msg: '' });
-  
-  // Default schema template to help users get started
-  const [schemaInput, setSchemaInput] = useState(`{
-  "username": "string",
-  "age": "integer",
-  "is_active": "boolean"
-}`);
+  const [schemaInput, setSchemaInput] = useState(DEFAULT_SCHEMA);
+
+  // Load the previously used schema layout on initialization safely
+  useEffect(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      setSchemaInput(saved);
+    }
+  }, []);
+
+  const handleSchemaChange = (value: string) => {
+    setSchemaInput(value);
+    localStorage.setItem(STORAGE_KEY, value);
+  };
 
   const handleRunFuzzer = async () => {
     setLoading(true);
     setStatus({ type: 'idle', msg: '' });
     
     try {
-      // Validate that the user pasted valid JSON
+      // Validate structural safety before deployment
       const parsedSchema = JSON.parse(schemaInput);
       
-      // Send it to the FastAPI backend
       const result = await dashboardService.triggerFuzzSession("SandboxSchema", parsedSchema);
       
-      setStatus({ type: 'success', msg: `Successfully ran ${result.total_tests} adversarial tests.` });
+      setStatus({ 
+        type: 'success', 
+        msg: `Fuzz payload generated and accepted. Analyzing boundaries asynchronously...` 
+      });
       
-      // Tell the main page to refresh its charts
+      // Notify parent wrapper to update ledger
       onRunComplete();
       
     } catch (err: any) {
@@ -53,7 +69,7 @@ export function FuzzSandbox({ onRunComplete }: { onRunComplete: () => void }) {
       <textarea
         className="w-full h-48 p-4 font-mono text-sm bg-slate-900 text-green-400 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none"
         value={schemaInput}
-        onChange={(e) => setSchemaInput(e.target.value)}
+        onChange={(e) => handleSchemaChange(e.target.value)}
         disabled={loading}
       />
 

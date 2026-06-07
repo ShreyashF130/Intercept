@@ -7,15 +7,26 @@ from backend.app.database import Base
 class FuzzSessionRecord(Base):
     __tablename__ = "fuzz_sessions"
 
-    id = Column(Integer, primary_key=True, index=True)
+    # 1. FIXED: Must be String to accept UUIDs from orchestrator
+    id = Column(String, primary_key=True, index=True)
     
-    # NEW: Multi-Tenant Isolation Key
+    # Multi-Tenant Isolation Key
     organization_id = Column(String, index=True, nullable=False) 
     
-    repository = Column(String, index=True)
-    total_tests = Column(Integer)
-    passed_count = Column(Integer)
-    failed_count = Column(Integer)
+    # 2. FIXED: Added tracking metadata used by orchestrator
+    schema_name = Column(String, index=True)
+    status = Column(String, default="processing")
+    result = Column(String, nullable=True)
+    
+    # Metrics (Aligned naming with orchestrator DB updates)
+    total_tests = Column(Integer, default=0)
+    passed_tests = Column(Integer, default=0)
+    failed_tests = Column(Integer, default=0)
+    
+    # 3. CRITICAL NEW FIX: The JSON payloads for the Dashboard UI
+    details = Column(JSON, default=list)
+    schema_definition = Column(JSON, default=dict)
+    
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Establish a one-to-many relationship with the test cases

@@ -1,7 +1,7 @@
-// frontend/src/app/page.tsx
+// src/app/page.tsx
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { dashboardService } from "@/services/api";
 import { DashboardMetricsResponse } from "@/types";
 import { Activity, ShieldAlert, ChevronDown, ChevronUp, Terminal, FileCode } from "lucide-react";
@@ -15,21 +15,39 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
+  const initialLoadRef = useRef(false);
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (isBackground = false) => {
     try {
       const metrics = await dashboardService.getMetrics();
       setData(metrics);
       setError(null);
     } catch (err) {
-      setError("Failed to connect to Intercept Backend or Supabase.");
+      if (!isBackground) {
+        setError("Failed to connect to Intercept Backend or Supabase.");
+      }
     } finally {
-      setLoading(false);
+      if (!isBackground) {
+        setLoading(false);
+      }
     }
   }, []);
 
+  // First initialization load
   useEffect(() => {
-    loadDashboard();
+    if (!initialLoadRef.current) {
+      loadDashboard(false);
+      initialLoadRef.current = true;
+    }
+  }, [loadDashboard]);
+
+  // Automated background polling loop for real-time async telemetry updates
+  useEffect(() => {
+    const pollInterval = setInterval(() => {
+      loadDashboard(true);
+    }, 4000); // Evaluates state changes every 4 seconds cleanly
+
+    return () => clearInterval(pollInterval);
   }, [loadDashboard]);
 
   if (loading) return <div className="flex h-screen items-center justify-center"><Activity className="animate-spin text-blue-500 w-8 h-8" /></div>;
@@ -74,7 +92,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <FuzzSandbox onRunComplete={loadDashboard} />
+        <FuzzSandbox onRunComplete={() => loadDashboard(true)} />
 
         {/* Analytics Chart */}
         <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -114,31 +132,28 @@ export default function Dashboard() {
                   const isExpanded = expandedSessionId === rowId;
                   
                   return (
-                    <>
-                      <tr 
-                        key={`row-${rowId}`} 
-                        className="hover:bg-slate-50/80 cursor-pointer transition-colors"
+                    <tr key={`group-${rowId}`} className="contents">
+                      <td 
+                        className="hover:bg-slate-50/80 cursor-pointer transition-colors px-6 py-4 text-slate-400"
                         onClick={() => toggleRow(rowId)}
                       >
-                        <td className="px-6 py-4 text-slate-400">
-                          {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                        </td>
-                        <td className="px-6 py-4 font-mono text-xs text-slate-500">
-                          {session?.created_at ? new Date(session.created_at).toLocaleString() : new Date().toLocaleString()}
-                        </td>
-                        <td className="px-6 py-4 font-medium text-slate-900">{session?.schema_name || 'Dynamic Schema'}</td>
-                        <td className="px-6 py-4">
-                          <span className={`px-2 py-1 rounded text-xs font-bold ${
-                            (session.result === 'passed' || session.status === 'passed') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                          }`}>
-                            {(session.result || session.status || 'FAILED').toUpperCase()}
-                          </span>
-                        </td>
-                      </tr>
+                        {isExpanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                      </td>
+                      <td className="px-6 py-4 font-mono text-xs text-slate-500 cursor-pointer" onClick={() => toggleRow(rowId)}>
+                        {session?.created_at ? new Date(session.created_at).toLocaleString() : new Date().toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 font-medium text-slate-900 cursor-pointer" onClick={() => toggleRow(rowId)}>{session?.schema_name || 'Dynamic Schema'}</td>
+                      <td className="px-6 py-4 cursor-pointer" onClick={() => toggleRow(rowId)}>
+                        <span className={`px-2 py-1 rounded text-xs font-bold ${
+                          (session.result === 'passed' || session.status === 'passed') ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
+                          {(session.result || session.status || 'FAILED').toUpperCase()}
+                        </span>
+                      </td>
 
-                      {/* Expandable Split-Pane Diff Section */}
+                      {/* Expanded Split-Pane Diff Section */}
                       {isExpanded && (
-                        <tr key={`diff-${rowId}`} className="bg-slate-900 border-t border-b border-slate-700">
+                        <tr className="bg-slate-900 border-t border-b border-slate-700">
                           <td colSpan={4} className="p-6">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-slate-200">
                               
@@ -190,7 +205,7 @@ export default function Dashboard() {
                           </td>
                         </tr>
                       )}
-                    </>
+                    </tr>
                   );
                 })}
               </tbody>

@@ -4,7 +4,7 @@ import uuid
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any
-from sqlalchemy import text # <-- CRITICAL: Forces SQLAlchemy to execute raw SQL
+from sqlalchemy import text 
 
 from sdk.intercept.fuzzer import generate_fuzz_cases
 from sdk.intercept.engine import run_contract_test
@@ -52,13 +52,15 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
                 llm_provider=payload.llm_provider,
                 llm_api_key=payload.llm_api_key
             )
+            
+            # Map user_input directly into the report so the frontend can read it
+            run_report["user_input"] = attack_input 
             reports.append(run_report)
             
             test_status = run_report.get("status", "failed")
             if test_status == "passed":
                 passed_count += 1
 
-            # Wrapped in text() and properly serialized
             db.execute(
                 text("""
                 INSERT INTO test_cases (session_id, input_payload, error_message, status)
@@ -74,11 +76,12 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
 
         final_result = "passed" if passed_count == len(attack_prompts) else "failed"
 
+        # CRITICAL FIX: Save the details array to the database
         db.execute(
             text("""
             UPDATE fuzz_sessions 
             SET status = 'completed', result = :result, total_tests = :total, 
-                passed_tests = :passed, failed_tests = :failed
+                passed_tests = :passed, failed_tests = :failed, details = :details
             WHERE id = :id
             """),
             {
@@ -86,7 +89,8 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
                 "result": final_result,
                 "total": len(attack_prompts),
                 "passed": passed_count,
-                "failed": len(attack_prompts) - passed_count
+                "failed": len(attack_prompts) - passed_count,
+                "details": json.dumps(reports) 
             }
         )
         db.commit()
@@ -102,7 +106,7 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
         }
 
     except Exception as e:
-        print(f"❌ DATABASE WORKER ERROR: {str(e)}") # This will expose the error in your terminal
+        print(f"❌ DATABASE WORKER ERROR: {str(e)}") 
         db.rollback()
         db.execute(text("UPDATE fuzz_sessions SET status = 'failed' WHERE id = :id"), {"id": session_id})
         db.commit()
@@ -119,12 +123,18 @@ def trigger_fuzz_pipeline(
     session_id = str(uuid.uuid4())
     db = SessionLocal()
     try:
+        # CRITICAL FIX: Save the schema_definition on initial insert
         db.execute(
             text("""
-            INSERT INTO fuzz_sessions (id, organization_id, schema_name, status)
-            VALUES (:id, :org_id, :schema, 'processing')
+            INSERT INTO fuzz_sessions (id, organization_id, schema_name, status, schema_definition)
+            VALUES (:id, :org_id, :schema, 'processing', :schema_def)
             """),
-            {"id": session_id, "org_id": tenant_context["organization_id"], "schema": payload.schema_name}
+            {
+                "id": session_id, 
+                "org_id": tenant_context["organization_id"], 
+                "schema": payload.schema_name,
+                "schema_def": json.dumps(payload.schema_definition)
+            }
         )
         db.commit()
     except Exception as e:
@@ -145,43 +155,3 @@ def trigger_fuzz_pipeline(
         "session_id": session_id,
         "message": "Fuzz testing pipeline successfully initiated in background."
     }
-
-
-
-
-@router.get("/api/v1/fuzz/status/{session_id}")
-def check_pipeline_status(session_id: str):
-    if session_id not in SESSION_CACHE:
-        raise HTTPException(status_code=404, detail="Requested fuzzing session not found.")
-    return SESSION_CACHE[session_id]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
