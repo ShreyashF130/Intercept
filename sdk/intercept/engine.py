@@ -7,23 +7,39 @@ from sdk.intercept.multi_provider import generate_content_with_byok
 
 def generate_dynamic_pydantic_model(schema_name: str, schema_json: dict) -> Any:
     """
-    Takes a raw JSON dictionary mapping field names to Python types (represented as strings)
-    and dynamically compiles a Pydantic BaseModel in memory.
+    Dynamically compiles a Pydantic BaseModel.
+    Upgraded to support both simple flat dictionaries and nested JSON Schemas.
     """
     fields = {}
-    for field_name, field_type_string in schema_json.items():
-        if field_type_string.lower() == "string":
-            fields[field_name] = (str, ...)
-        elif field_type_string.lower() == "float":
-            fields[field_name] = (float, ...)
-        elif field_type_string.lower() == "integer":
-            fields[field_name] = (int, ...)
-        elif field_type_string.lower() == "boolean":
-            fields[field_name] = (bool, ...)
+    
+    # 1. CRITICAL FIX: Detect if the user pasted a standard JSON Schema containing "properties"
+    properties = schema_json.get("properties", schema_json)
+    
+    for field_name, field_val in properties.items():
+        # If the value is a nested dictionary (e.g., {"type": "string"}), extract the type
+        if isinstance(field_val, dict):
+            field_type_string = str(field_val.get("type", "any"))
         else:
-            fields[field_name] = (Any, ...)  # Fallback for complex types
+            # If it's a flat sandbox format (e.g., "string")
+            field_type_string = str(field_val)
             
-    # Dynamic class generation via Pydantic
+        type_lower = field_type_string.lower()
+        
+        if type_lower == "string":
+            fields[field_name] = (str, ...)
+        elif type_lower in ["float", "number"]:
+            fields[field_name] = (float, ...)
+        elif type_lower == "integer":
+            fields[field_name] = (int, ...)
+        elif type_lower == "boolean":
+            fields[field_name] = (bool, ...)
+        elif type_lower == "array":
+            fields[field_name] = (list, ...)
+        elif type_lower == "object":
+            fields[field_name] = (dict, ...)
+        else:
+            fields[field_name] = (Any, ...)  
+            
     return create_model(schema_name, **fields)
 
 
@@ -32,19 +48,16 @@ def run_contract_test(
     user_input: str, 
     schema_name: str, 
     schema_json: dict,
-    llm_provider: str,  # <-- NEW: Dynamic Provider (gemini, openai, anthropic)
-    llm_api_key: str    # <-- NEW: User-supplied API Key from the Action
+    llm_provider: str,
+    llm_api_key: str
 ) -> dict:
     """
-    Executes contract validation using a dynamically compiled Pydantic model
-    agnostic of the underlying LLM infrastructure.
+    Executes contract validation using a dynamically compiled Pydantic model.
     """
     raw_output = None
     try:
-        # 1. Build the target structural contract in-memory
         DynamicModel = generate_dynamic_pydantic_model(schema_name, schema_json)
         
-        # 2. Instruct the model to conform strictly to the expected key structure
         structural_instruction = (
             f"{system_prompt}\n"
             f"CRITICAL: Your response must be a single, flat JSON object matching this schema blueprint:\n"
@@ -52,7 +65,6 @@ def run_contract_test(
             "Do not include markdown blocks, backticks, or wrapping formatting outside the raw JSON payload."
         )
 
-        # 3. Route the execution to the requested engine provider using their key
         raw_output = generate_content_with_byok(
             provider=llm_provider,
             api_key=llm_api_key,
@@ -61,7 +73,6 @@ def run_contract_test(
             json_schema=schema_json
         )
 
-        # Clean common model outputs if they wrapped it in markdown code blocks anyway
         cleaned_output = raw_output.strip()
         if cleaned_output.startswith("```json"):
             cleaned_output = cleaned_output[7:]
@@ -69,26 +80,25 @@ def run_contract_test(
             cleaned_output = cleaned_output[:-3]
         cleaned_output = cleaned_output.strip()
 
-        # 4. Enforce validation on our gateway using the compiled Pydantic rules
         validated_instance = DynamicModel.model_validate_json(cleaned_output)
             
         return {
             "status": "passed",
             "model_output": validated_instance.model_dump(),
-            "errors": None
+            "error": None  # <-- FIXED KEY NAME
         }
         
     except ValidationError as e:
-        # The LLM generated text but it violated the developer's types
+        # 2. CRITICAL FIX: Convert Pydantic error list to a readable string and fix the dictionary key
         return {
             "status": "failed",
             "model_output": raw_output if raw_output else "Empty response string",
-            "errors": e.errors()
+            "error": str(e)  # <-- FIXED KEY NAME (was 'errors')
         }
     except Exception as e:
-        # Runtime crashes or invalid API keys handled cleanly
+        # Runtime crashes or parsing failures handled cleanly
         return {
             "status": "error",
             "model_output": raw_output if raw_output else "Pipeline crashed before completion",
-            "errors": f"Engine Runtime Exception: {str(e)}"
+            "error": f"Engine Runtime Exception: {str(e)}" # <-- FIXED KEY NAME
         }

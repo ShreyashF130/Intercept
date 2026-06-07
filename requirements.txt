@@ -16,3 +16,4 @@ anthropic>=0.21.0
 # Utilities
 requests>=2.31.0
 supabase
+google-generativeai

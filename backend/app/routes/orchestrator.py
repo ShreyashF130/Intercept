@@ -1,6 +1,8 @@
 # backend/app/routes/orchestrator.py
 import json
 import uuid
+import asyncio
+import google.generativeai as genai
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -19,6 +21,39 @@ class FuzzTriggerPayload(BaseModel):
     schema_definition: Dict[str, Any]
     llm_provider: str
     llm_api_key: str
+
+def generate_live_remediation(schema_name: str, schema_def: dict, failed_reports: list, api_key: str) -> str:
+    """Acts as a Staff Security Engineer to explain the crash and write the fix."""
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+        
+        error_logs = "\n".join([
+            f"Payload: {r.get('user_input')}\nError: {r.get('error', 'Unhandled Exception')}" 
+            for r in failed_reports
+        ])
+        
+        prompt = f"""
+        You are an elite Staff Security Engineer specializing in Python, LLM Agent architecture, and Pydantic.
+        
+        Target Schema: {schema_name}
+        Schema Definition: {json.dumps(schema_def)}
+        
+        During an adversarial fuzzing audit, the LLM hallucinated payloads that bypassed or crashed this schema.
+        Here are the exact failed payloads and the resulting Python tracebacks:
+        {error_logs}
+        
+        Write a concise, markdown-formatted remediation report for the developer. Do not use pleasantries.
+        Include exactly two sections:
+        1. **Root Cause Analysis:** Why did the schema fail to handle this LLM hallucination gracefully?
+        2. **Code Remediation:** Provide the exact Pydantic Python code snippet to fix this (e.g., using @field_validator, adding typing.Union fallbacks, or handling Literal coercion).
+        """
+        
+        response = model.generate_content(prompt)
+        return response.text
+        
+    except Exception as e:
+        return f"⚠️ **Analysis Engine Error:** Could not generate remediation report. Details: {str(e)}"
 
 def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organization_id: str):
     db = SessionLocal()
@@ -44,7 +79,9 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
         passed_count = 0
 
         for attack_input in attack_prompts:
+            # Safely serialize to string for the testing engine
             payload_string = json.dumps(attack_input) if isinstance(attack_input, dict) else str(attack_input)
+            
             run_report = run_contract_test(
                 system_prompt="You are a strict database ingestion contract validator.",
                 user_input=payload_string,
@@ -54,7 +91,6 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
                 llm_api_key=payload.llm_api_key
             )
             
-            # Map user_input directly into the report so the frontend can read it
             run_report["user_input"] = attack_input 
             reports.append(run_report)
             
@@ -76,30 +112,26 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
             )
 
         final_result = "passed" if passed_count == len(attack_prompts) else "failed"
-        ai_analysis_text = "All contracts passed successfully. No vulnerabilities detected."
-
+        
+        # Trigger the AI Remediation Engine
+        ai_analysis_text = "✅ All strict-typing contracts passed successfully. No vulnerabilities detected."
+        
         if failed_count > 0:
-            # Extract just the error messages to send to the LLM
-            error_summaries = [r.get("error") for r in reports if r.get("status") == "failed"]
-            
-            # Note: You can replace this dummy string with an actual LLM call to your provider
-            # e.g., ai_analysis_text = generate_llm_remediation(payload.schema_name, error_summaries)
-            ai_analysis_text = (
-                f"🚨 **Vulnerability Detected in {payload.schema_name}**\n\n"
-                f"**Root Cause:** The schema strictly enforces types, but the LLM hallucinated uncoercible data types "
-                f"(e.g., passing strings to fields expecting exact Literals or objects). "
-                f"Pydantic natively rejected these payloads with: `{error_summaries[0][:100]}...`\n\n"
-                f"**Remediation Strategy:**\n"
-                f"1. Implement a `@model_validator(mode='before')` to catch and sanitize string conversions.\n"
-                f"2. For Literal fields, ensure your agent prompt explicitly lists the allowed enums.\n"
-                f"3. Consider using `typing.Union` with a fallback default for non-critical fields."
+            failed_reports = [r for r in reports if r.get("status") == "failed"]
+            ai_analysis_text = generate_live_remediation(
+                schema_name=payload.schema_name,
+                schema_def=payload.schema_definition,
+                failed_reports=failed_reports,
+                api_key=payload.llm_api_key
             )
-        # CRITICAL FIX: Save the details array to the database
+
+        # CRITICAL FIX: The SQL SET clause now actually includes ai_analysis = :ai_analysis
         db.execute(
             text("""
             UPDATE fuzz_sessions 
             SET status = 'completed', result = :result, total_tests = :total, 
-                passed_tests = :passed, failed_tests = :failed, details = :details
+                passed_tests = :passed, failed_tests = :failed, details = :details,
+                ai_analysis = :ai_analysis
             WHERE id = :id
             """),
             {
@@ -108,7 +140,7 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
                 "total": len(attack_prompts),
                 "passed": passed_count,
                 "failed": len(attack_prompts) - passed_count,
-                "details": json.dumps(reports) ,
+                "details": json.dumps(reports),
                 "ai_analysis": ai_analysis_text
             }
         )
@@ -142,7 +174,6 @@ def trigger_fuzz_pipeline(
     session_id = str(uuid.uuid4())
     db = SessionLocal()
     try:
-        # CRITICAL FIX: Save the schema_definition on initial insert
         db.execute(
             text("""
             INSERT INTO fuzz_sessions (id, organization_id, schema_name, status, schema_definition)
