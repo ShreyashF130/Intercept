@@ -35,7 +35,8 @@ def get_dashboard_metrics(db: Session = Depends(get_db)):
                 "status": getattr(s, 'status', 'completed'),
                 "result": getattr(s, 'result', 'failed'),
                 "details": s.details if isinstance(getattr(s, 'details', []), list) else json.loads(getattr(s, 'details', '[]') or '[]'),
-                "schema_definition": s.schema_definition if isinstance(getattr(s, 'schema_definition', {}), dict) else json.loads(getattr(s, 'schema_definition', '{}') or '{}')
+                "schema_definition": s.schema_definition if isinstance(getattr(s, 'schema_definition', {}), dict) else json.loads(getattr(s, 'schema_definition', '{}') or '{}'),
+                "ai_analysis": getattr(s, 'ai_analysis', 'Analysis pending...')
             })
 
         failure_rate = 0

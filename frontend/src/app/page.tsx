@@ -152,18 +152,35 @@ export default function Dashboard() {
                       </td>
 
                       {/* Expanded Split-Pane Diff Section */}
+                     {/* Expanded Split-Pane Diff & Analysis Section */}
                       {isExpanded && (
                         <tr className="bg-slate-900 border-t border-b border-slate-700">
                           <td colSpan={4} className="p-6">
+                            
+                            {/* PREMIUM UPGRADE: AI Security Analysis Banner */}
+                            {session.result === 'failed' && (
+                              <div className="mb-6 bg-indigo-950/40 border border-indigo-500/30 rounded-xl p-5 shadow-inner">
+                                <div className="flex items-center mb-3">
+                                  <div className="w-8 h-8 rounded-full bg-indigo-500/20 flex items-center justify-center mr-3 border border-indigo-500/50">
+                                    <span className="text-indigo-400 text-lg">✨</span>
+                                  </div>
+                                  <h3 className="text-indigo-300 font-bold text-sm tracking-wide uppercase">AI Root Cause Analysis & Remediation</h3>
+                                </div>
+                                <div className="text-slate-300 text-sm leading-relaxed whitespace-pre-wrap font-sans pl-11">
+                                  {session.ai_analysis}
+                                </div>
+                              </div>
+                            )}
+
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-slate-200">
-                              
                               {/* Left Panel: Expected Schema Structure */}
-                              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2">
+                              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2 relative overflow-hidden">
+                                <div className="absolute top-0 left-0 w-1 h-full bg-blue-500/50"></div>
                                 <div className="flex items-center text-slate-400 font-medium text-xs uppercase tracking-wider pb-2 border-b border-slate-800">
                                   <FileCode className="w-4 h-4 mr-2 text-blue-400" />
-                                  Expected Pydantic Structure
+                                  Target Contract (Expected)
                                 </div>
-                                <div className="font-mono text-xs overflow-auto max-h-60 pt-2 text-blue-300">
+                                <div className="font-mono text-xs overflow-auto max-h-72 pt-2 text-blue-300">
                                   {session?.schema_definition ? (
                                     <JsonView data={session.schema_definition} style={defaultStyles} />
                                   ) : (
@@ -173,24 +190,36 @@ export default function Dashboard() {
                               </div>
 
                               {/* Right Panel: The Poisoned Adversarial Payload */}
-                              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2">
+                              <div className="bg-slate-950 p-4 rounded-lg border border-slate-800 space-y-2 relative overflow-hidden">
+                                <div className="absolute top-0 left-0 w-1 h-full bg-red-500/50"></div>
                                 <div className="flex items-center text-slate-400 font-medium text-xs uppercase tracking-wider pb-2 border-b border-slate-800">
                                   <Terminal className="w-4 h-4 mr-2 text-red-400" />
-                                  Poisoned Adversarial Input Caught
+                                  Adversarial Payloads Caught
                                 </div>
-                                <div className="font-mono text-xs overflow-auto max-h-60 pt-2 text-red-300">
+                                <div className="font-mono text-xs overflow-auto max-h-72 pt-2 text-red-300">
                                   {session?.details && session.details.length > 0 ? (
                                     <div className="space-y-4">
                                       {session.details.map((det: any, idx: number) => (
-                                        <div key={idx} className="pb-3 border-b border-slate-900 last:border-0">
-                                          <p className="text-slate-400 text-[10px] mb-1 font-sans">ATTACK PAYLOAD #{idx + 1}:</p>
-                                          <p className="italic bg-slate-900/50 p-2 rounded border border-slate-800/60 whitespace-pre-wrap">
-                                            "{det?.user_input || det?.payload || JSON.stringify(det)}"
+                                        <div key={idx} className="pb-4 border-b border-slate-800/50 last:border-0">
+                                          <div className="flex justify-between items-center mb-2">
+                                            <span className="text-slate-500 text-[10px] font-bold tracking-wider bg-slate-900 px-2 py-1 rounded">ATTACK #{idx + 1}</span>
+                                            <span className={`text-[10px] font-bold px-2 py-1 rounded ${det?.status === 'passed' ? 'bg-green-900/30 text-green-400' : 'bg-red-900/30 text-red-400'}`}>
+                                              {det?.status?.toUpperCase()}
+                                            </span>
+                                          </div>
+                                          
+                                          <p className="text-slate-400 text-[10px] mb-1">INJECTED JSON:</p>
+                                          <p className="bg-slate-900/80 p-3 rounded-md border border-slate-800 whitespace-pre-wrap text-emerald-400/80">
+                                            {typeof det?.user_input === 'string' ? det.user_input : JSON.stringify(det?.user_input, null, 2)}
                                           </p>
+                                          
                                           {det?.error && (
-                                            <p className="text-red-400 text-[11px] mt-1 font-sans bg-red-950/30 px-2 py-0.5 rounded">
-                                              ⚠️ Parser Error: {det.error}
-                                            </p>
+                                            <div className="mt-2">
+                                              <p className="text-red-500/80 text-[10px] mb-1 font-bold">SYSTEM CRASH TRACE:</p>
+                                              <p className="text-red-400 text-[11px] font-sans bg-red-950/20 border border-red-900/30 px-3 py-2 rounded-md">
+                                                {det.error}
+                                              </p>
+                                            </div>
                                           )}
                                         </div>
                                       ))}

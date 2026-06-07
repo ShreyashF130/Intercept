@@ -76,7 +76,24 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
             )
 
         final_result = "passed" if passed_count == len(attack_prompts) else "failed"
+        ai_analysis_text = "All contracts passed successfully. No vulnerabilities detected."
 
+        if failed_count > 0:
+            # Extract just the error messages to send to the LLM
+            error_summaries = [r.get("error") for r in reports if r.get("status") == "failed"]
+            
+            # Note: You can replace this dummy string with an actual LLM call to your provider
+            # e.g., ai_analysis_text = generate_llm_remediation(payload.schema_name, error_summaries)
+            ai_analysis_text = (
+                f"🚨 **Vulnerability Detected in {payload.schema_name}**\n\n"
+                f"**Root Cause:** The schema strictly enforces types, but the LLM hallucinated uncoercible data types "
+                f"(e.g., passing strings to fields expecting exact Literals or objects). "
+                f"Pydantic natively rejected these payloads with: `{error_summaries[0][:100]}...`\n\n"
+                f"**Remediation Strategy:**\n"
+                f"1. Implement a `@model_validator(mode='before')` to catch and sanitize string conversions.\n"
+                f"2. For Literal fields, ensure your agent prompt explicitly lists the allowed enums.\n"
+                f"3. Consider using `typing.Union` with a fallback default for non-critical fields."
+            )
         # CRITICAL FIX: Save the details array to the database
         db.execute(
             text("""
@@ -91,7 +108,8 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
                 "total": len(attack_prompts),
                 "passed": passed_count,
                 "failed": len(attack_prompts) - passed_count,
-                "details": json.dumps(reports) 
+                "details": json.dumps(reports) ,
+                "ai_analysis": ai_analysis_text
             }
         )
         db.commit()

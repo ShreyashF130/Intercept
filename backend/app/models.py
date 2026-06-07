@@ -26,6 +26,7 @@ class FuzzSessionRecord(Base):
     # 3. CRITICAL NEW FIX: The JSON payloads for the Dashboard UI
     details = Column(JSON, default=list)
     schema_definition = Column(JSON, default=dict)
+    ai_analysis = Column(String, nullable=True)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
