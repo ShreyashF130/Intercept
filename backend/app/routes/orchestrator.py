@@ -115,7 +115,7 @@ def async_fuzz_processor(session_id: str, payload: FuzzTriggerPayload, organizat
         
         # Trigger the AI Remediation Engine
         ai_analysis_text = "✅ All strict-typing contracts passed successfully. No vulnerabilities detected."
-        
+        failed_count = len(attack_prompts) - passed_count
         if failed_count > 0:
             failed_reports = [r for r in reports if r.get("status") == "failed"]
             ai_analysis_text = generate_live_remediation(
