@@ -26,7 +26,7 @@ def generate_live_remediation(schema_name: str, schema_def: dict, failed_reports
     """Acts as a Staff Security Engineer to explain the crash and write the fix."""
     try:
         genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-1.5-flash-latest')
         
         error_logs = "\n".join([
             f"Payload: {r.get('user_input')}\nError: {r.get('error', 'Unhandled Exception')}" 
